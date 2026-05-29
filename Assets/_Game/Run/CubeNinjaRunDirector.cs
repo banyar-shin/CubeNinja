@@ -21,6 +21,7 @@ namespace CubeNinja.Run
         private int score;
         private int lives;
         private float spawnTimer;
+        private bool waitingToStart;
         private bool gameOver;
 
         public int Score => score;
@@ -45,19 +46,26 @@ namespace CubeNinja.Run
             EnsureSceneServices();
             comboTracker = new ScoreComboTracker(Settings.ComboWindowSeconds);
             cubePool = new ComponentPool<CubeTarget>(CreateCubeTarget);
-            RestartRun();
+            EnterStartMenu();
         }
 
         private void OnDestroy()
         {
             if (hudPresenter != null)
             {
+                hudPresenter.StartRequested -= StartRun;
                 hudPresenter.RestartRequested -= RestartRun;
             }
         }
 
         private void Update()
         {
+            if (waitingToStart)
+            {
+                UpdateHud();
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.R))
             {
                 RestartRun();
@@ -80,6 +88,11 @@ namespace CubeNinja.Run
             UpdateHud();
         }
 
+        public void StartRun()
+        {
+            RestartRun();
+        }
+
         public void RestartRun()
         {
             for (var i = activeCubes.Count - 1; i >= 0; i--)
@@ -91,10 +104,12 @@ namespace CubeNinja.Run
             score = 0;
             lives = Settings.StartingLives;
             spawnTimer = 0.2f;
+            waitingToStart = false;
             gameOver = false;
             comboTracker.Reset();
 
             hudPresenter?.ClearPopups();
+            hudPresenter?.SetStartMenuVisible(false);
             UpdateHud();
         }
 
@@ -109,7 +124,7 @@ namespace CubeNinja.Run
             var popupPosition = target.transform.position;
             ReleaseCube(target);
 
-            if (gameOver || type == null)
+            if (waitingToStart || gameOver || type == null)
             {
                 return;
             }
@@ -122,12 +137,9 @@ namespace CubeNinja.Run
             }
 
             var multiplier = comboTracker.RegisterScoreHit(Time.time);
-            score += type.PointValue * multiplier;
-
-            if (multiplier > 1)
-            {
-                hudPresenter?.ShowComboPopup(popupPosition, multiplier);
-            }
+            var pointsAdded = type.PointValue * multiplier;
+            score += pointsAdded;
+            hudPresenter?.ShowScorePopup(popupPosition, pointsAdded, multiplier);
 
             UpdateHud();
         }
@@ -139,10 +151,16 @@ namespace CubeNinja.Run
                 return;
             }
 
+            var type = target.CubeType;
             var popupPosition = target.transform.position;
             ReleaseCube(target);
 
-            if (gameOver)
+            if (waitingToStart || gameOver)
+            {
+                return;
+            }
+
+            if (type != null && type.ClickOutcome == CubeClickOutcome.LoseLife)
             {
                 return;
             }
@@ -161,15 +179,21 @@ namespace CubeNinja.Run
 
             var target = cubePool.Get();
             var bottom = ViewportToPlane(0.5f, 0f);
+            var left = ViewportToPlane(0f, 0f);
+            var right = ViewportToPlane(1f, 0f);
+            var horizontalInset = Settings.CubeScale * 0.5f;
+            var leftBoundX = left.x + horizontalInset;
+            var rightBoundX = right.x - horizontalInset;
             var xPoint = ViewportToPlane(Random.Range(0.12f, 0.88f), 0f);
-            var spawnPosition = new Vector3(xPoint.x, bottom.y - Settings.SpawnPadding, spawnPlaneZ);
+            var spawnX = Mathf.Clamp(xPoint.x, leftBoundX, rightBoundX);
+            var spawnPosition = new Vector3(spawnX, bottom.y - Settings.SpawnPadding, spawnPlaneZ);
             var entryY = bottom.y + 0.1f;
             var missY = bottom.y - Settings.MissPadding;
             var launchSpeed = Random.Range(Settings.LaunchVelocityRange.x, Settings.LaunchVelocityRange.y);
             var velocity = new Vector3(Random.Range(-Settings.HorizontalVelocityRange, Settings.HorizontalVelocityRange), launchSpeed, 0f);
             var angular = Random.insideUnitSphere * Settings.AngularVelocityRange;
 
-            target.Initialize(type, this, entryY, missY, Settings.CubeScale);
+            target.Initialize(type, this, entryY, missY, leftBoundX, rightBoundX, Settings.CubeScale);
             target.Launch(spawnPosition, velocity, angular);
             activeCubes.Add(target);
         }
@@ -291,6 +315,59 @@ namespace CubeNinja.Run
             hudPresenter.SetCamera(mainCamera);
             hudPresenter.RestartRequested -= RestartRun;
             hudPresenter.RestartRequested += RestartRun;
+            hudPresenter.StartRequested -= StartRun;
+            hudPresenter.StartRequested += StartRun;
+            ConfigureStartMenuInfo();
+        }
+
+        private void EnterStartMenu()
+        {
+            for (var i = activeCubes.Count - 1; i >= 0; i--)
+            {
+                ReleaseCube(activeCubes[i]);
+            }
+
+            activeCubes.Clear();
+            score = 0;
+            lives = Settings.StartingLives;
+            spawnTimer = 0.2f;
+            waitingToStart = true;
+            gameOver = false;
+            comboTracker.Reset();
+
+            hudPresenter?.ClearPopups();
+            hudPresenter?.SetStartMenuVisible(true);
+            ConfigureStartMenuInfo();
+            UpdateHud();
+        }
+
+        private void ConfigureStartMenuInfo()
+        {
+            if (hudPresenter == null)
+            {
+                return;
+            }
+
+            var entries = new List<HudPresenter.LegendEntry>();
+            var cubeTypes = Settings.CubeTypes;
+            if (cubeTypes != null)
+            {
+                for (var i = 0; i < cubeTypes.Length; i++)
+                {
+                    var cubeType = cubeTypes[i].CubeType;
+                    if (cubeType == null)
+                    {
+                        continue;
+                    }
+
+                    var description = cubeType.ClickOutcome == CubeClickOutcome.LoseLife
+                        ? "Danger cube: costs 1 life if clicked. No penalty if it falls."
+                        : $"{cubeType.PointValue} point{(cubeType.PointValue == 1 ? string.Empty : "s")} before combo multiplier.";
+                    entries.Add(new HudPresenter.LegendEntry(cubeType.DisplayName, cubeType.Color, description));
+                }
+            }
+
+            hudPresenter.SetStartMenuInfo(entries.ToArray(), Settings.ComboWindowSeconds);
         }
 
         private Vector3 ViewportToPlane(float x, float y)

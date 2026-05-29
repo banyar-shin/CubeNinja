@@ -17,7 +17,7 @@ MonoBehaviour:
   launchVelocityRange: {x: 8.5, y: 12}
   horizontalVelocityRange: 2.5
   angularVelocityRange: 8
-  cubeScale: 0.85
+  cubeScale: 1.275
   spawnPadding: 0.8
   missPadding: 1.1
   comboWindowSeconds: 0.5

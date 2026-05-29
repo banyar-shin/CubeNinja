@@ -20,6 +20,8 @@ namespace CubeNinja.Gameplay
         private ICubeTargetListener listener;
         private float playAreaEntryY;
         private float bottomMissY;
+        private float leftBoundX;
+        private float rightBoundX;
         private bool enteredPlayArea;
         private bool resolved;
 
@@ -38,6 +40,8 @@ namespace CubeNinja.Gameplay
             }
 
             var y = transform.position.y;
+            ReflectInsideHorizontalBounds();
+
             if (!enteredPlayArea && y >= playAreaEntryY)
             {
                 enteredPlayArea = true;
@@ -66,6 +70,8 @@ namespace CubeNinja.Gameplay
             ICubeTargetListener targetListener,
             float entryY,
             float missY,
+            float leftX,
+            float rightX,
             float scale)
         {
             EnsureComponents();
@@ -74,11 +80,14 @@ namespace CubeNinja.Gameplay
             listener = targetListener;
             playAreaEntryY = entryY;
             bottomMissY = missY;
+            leftBoundX = Mathf.Min(leftX, rightX);
+            rightBoundX = Mathf.Max(leftX, rightX);
             enteredPlayArea = false;
             resolved = false;
 
             transform.localScale = Vector3.one * scale;
             targetCollider.enabled = true;
+            targetCollider.isTrigger = true;
             body.useGravity = true;
             body.isKinematic = false;
             body.constraints = RigidbodyConstraints.FreezePositionZ;
@@ -150,6 +159,8 @@ namespace CubeNinja.Gameplay
             {
                 targetCollider = gameObject.AddComponent<BoxCollider>();
             }
+
+            targetCollider.isTrigger = true;
         }
 
         private void ApplyColor(Color color)
@@ -168,6 +179,47 @@ namespace CubeNinja.Gameplay
             propertyBlock.SetColor(BaseColorId, color);
             propertyBlock.SetColor(ColorId, color);
             meshRenderer.SetPropertyBlock(propertyBlock);
+        }
+
+        private void ReflectInsideHorizontalBounds()
+        {
+            if (body == null || body.isKinematic)
+            {
+                return;
+            }
+
+            var position = body.position;
+            var velocity = body.linearVelocity;
+            var changed = false;
+
+            if (position.x <= leftBoundX)
+            {
+                position.x = leftBoundX;
+                if (velocity.x < 0f)
+                {
+                    velocity.x = -velocity.x;
+                }
+
+                changed = true;
+            }
+            else if (position.x >= rightBoundX)
+            {
+                position.x = rightBoundX;
+                if (velocity.x > 0f)
+                {
+                    velocity.x = -velocity.x;
+                }
+
+                changed = true;
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            body.position = position;
+            body.linearVelocity = velocity;
         }
     }
 }

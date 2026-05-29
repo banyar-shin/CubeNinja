@@ -10,7 +10,7 @@ namespace CubeNinja.Data
         [SerializeField] private Vector2 launchVelocityRange = new Vector2(8.5f, 12f);
         [SerializeField] private float horizontalVelocityRange = 2.5f;
         [SerializeField] private float angularVelocityRange = 8f;
-        [SerializeField] private float cubeScale = 0.85f;
+        [SerializeField] private float cubeScale = 1.275f;
         [SerializeField] private float spawnPadding = 0.8f;
         [SerializeField] private float missPadding = 1.1f;
         [SerializeField] private float comboWindowSeconds = 0.5f;

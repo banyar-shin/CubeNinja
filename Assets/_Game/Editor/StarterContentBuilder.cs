@@ -43,6 +43,7 @@ namespace CubeNinja.Editor
         {
             var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.name = "CubeTarget";
+            cube.GetComponent<BoxCollider>().isTrigger = true;
             cube.AddComponent<Rigidbody>();
             cube.AddComponent<CubeTarget>();
 
@@ -120,7 +121,7 @@ namespace CubeNinja.Editor
             serialized.FindProperty("launchVelocityRange").vector2Value = new Vector2(8.5f, 12f);
             serialized.FindProperty("horizontalVelocityRange").floatValue = 2.5f;
             serialized.FindProperty("angularVelocityRange").floatValue = 8f;
-            serialized.FindProperty("cubeScale").floatValue = 0.85f;
+            serialized.FindProperty("cubeScale").floatValue = 1.275f;
             serialized.FindProperty("spawnPadding").floatValue = 0.8f;
             serialized.FindProperty("missPadding").floatValue = 1.1f;
             serialized.FindProperty("comboWindowSeconds").floatValue = 0.5f;
