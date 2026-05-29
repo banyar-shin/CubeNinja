@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a8bd901cb3a4a0aa0f362969a722341, type: 3}
+  m_Name: DefaultCubeSpawnSettings
+  m_EditorClassIdentifier: 
+  startingLives: 3
+  spawnIntervalRange: {x: 0.35, y: 0.8}
+  launchVelocityRange: {x: 8.5, y: 12}
+  horizontalVelocityRange: 2.5
+  angularVelocityRange: 8
+  cubeScale: 0.85
+  spawnPadding: 0.8
+  missPadding: 1.1
+  comboWindowSeconds: 0.5
+  cubeTypes:
+  - cubeType: {fileID: 11400000, guid: b490aa281e084bb6b1e204403011c7a8, type: 2}
+    weight: 0.7
+  - cubeType: {fileID: 11400000, guid: 0bb4f7535f804d95a12b29b18665d74a, type: 2}
+    weight: 0.2
+  - cubeType: {fileID: 11400000, guid: 159578a3f07241ddb0c2330408a60b6c, type: 2}
+    weight: 0.1

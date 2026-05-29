@@ -1,0 +1,19 @@
+{
+  "name": "CubeNinja.Run",
+  "rootNamespace": "CubeNinja.Run",
+  "references": [
+    "CubeNinja.Core",
+    "CubeNinja.Data",
+    "CubeNinja.Gameplay",
+    "CubeNinja.UI"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

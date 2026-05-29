@@ -1,0 +1,21 @@
+{
+  "name": "CubeNinja.Editor",
+  "rootNamespace": "CubeNinja.Editor",
+  "references": [
+    "CubeNinja.Data",
+    "CubeNinja.Gameplay",
+    "CubeNinja.Run",
+    "CubeNinja.UI"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
