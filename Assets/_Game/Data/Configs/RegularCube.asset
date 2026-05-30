@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   typeId: cube.regular
   displayName: Regular Cube
-  color: {r: 0.22, g: 0.85, b: 0.32, a: 1}
+  color: {r: 0.62, g: 0.82, b: 0.64, a: 1}
   pointValue: 1
   clickOutcome: 0

@@ -9,7 +9,16 @@ namespace CubeNinja.Gameplay
     public sealed class CubeTarget : MonoBehaviour
     {
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
+        private static readonly int GlossinessId = Shader.PropertyToID("_Glossiness");
+        private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+        private static readonly int MetallicId = Shader.PropertyToID("_Metallic");
+        private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
+        private const int PaintTextureSize = 64;
+
+        private static Material sharedPaintMaterial;
+        private static Texture2D sharedPaintTexture;
 
         [SerializeField] private MeshRenderer meshRenderer;
         [SerializeField] private Rigidbody body;
@@ -140,6 +149,15 @@ namespace CubeNinja.Gameplay
                 meshRenderer = GetComponent<MeshRenderer>();
             }
 
+            if (meshRenderer != null)
+            {
+                var paintMaterial = GetSharedPaintMaterial();
+                if (paintMaterial != null)
+                {
+                    meshRenderer.sharedMaterial = paintMaterial;
+                }
+            }
+
             if (body == null)
             {
                 body = GetComponent<Rigidbody>();
@@ -179,6 +197,88 @@ namespace CubeNinja.Gameplay
             propertyBlock.SetColor(BaseColorId, color);
             propertyBlock.SetColor(ColorId, color);
             meshRenderer.SetPropertyBlock(propertyBlock);
+        }
+
+        private static Material GetSharedPaintMaterial()
+        {
+            if (sharedPaintMaterial != null)
+            {
+                return sharedPaintMaterial;
+            }
+
+            var shader = Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Standard")
+                ?? Shader.Find("Unlit/Texture")
+                ?? Shader.Find("Sprites/Default");
+            if (shader == null)
+            {
+                return null;
+            }
+
+            sharedPaintMaterial = new Material(shader)
+            {
+                name = "CubeNinja Painterly Cube Material",
+                hideFlags = HideFlags.DontSave
+            };
+
+            var texture = GetSharedPaintTexture();
+            if (sharedPaintMaterial.HasProperty(MainTexId))
+            {
+                sharedPaintMaterial.SetTexture(MainTexId, texture);
+            }
+
+            if (sharedPaintMaterial.HasProperty(BaseMapId))
+            {
+                sharedPaintMaterial.SetTexture(BaseMapId, texture);
+            }
+
+            if (sharedPaintMaterial.HasProperty(SmoothnessId))
+            {
+                sharedPaintMaterial.SetFloat(SmoothnessId, 0.18f);
+            }
+
+            if (sharedPaintMaterial.HasProperty(GlossinessId))
+            {
+                sharedPaintMaterial.SetFloat(GlossinessId, 0.18f);
+            }
+
+            if (sharedPaintMaterial.HasProperty(MetallicId))
+            {
+                sharedPaintMaterial.SetFloat(MetallicId, 0f);
+            }
+
+            return sharedPaintMaterial;
+        }
+
+        private static Texture2D GetSharedPaintTexture()
+        {
+            if (sharedPaintTexture != null)
+            {
+                return sharedPaintTexture;
+            }
+
+            sharedPaintTexture = new Texture2D(PaintTextureSize, PaintTextureSize, TextureFormat.RGBA32, false)
+            {
+                name = "CubeNinja Painterly Cube Texture",
+                hideFlags = HideFlags.DontSave,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Repeat
+            };
+
+            for (var y = 0; y < PaintTextureSize; y++)
+            {
+                for (var x = 0; x < PaintTextureSize; x++)
+                {
+                    var broad = Mathf.PerlinNoise(x * 0.1f, y * 0.1f);
+                    var fine = Mathf.PerlinNoise(20f + x * 0.42f, 40f + y * 0.42f);
+                    var brush = Mathf.Clamp01((broad * 0.68f) + (fine * 0.32f));
+                    var shade = Mathf.Lerp(0.72f, 1.12f, brush);
+                    sharedPaintTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
+                }
+            }
+
+            sharedPaintTexture.Apply(false, true);
+            return sharedPaintTexture;
         }
 
         private void ReflectInsideHorizontalBounds()

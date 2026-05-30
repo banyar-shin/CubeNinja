@@ -15,9 +15,9 @@ namespace CubeNinja.UI
         private const int EdgeGlowBands = 5;
         private const int ClickEffectPixelCount = 14;
 
-        private static readonly Color BackgroundColor = new Color(0.085f, 0.075f, 0.18f, 0.44f);
-        private static readonly Color PanelColor = new Color(0.12f, 0.105f, 0.24f, 0.92f);
-        private static readonly Color PanelAccentColor = new Color(0.62f, 0.44f, 0.86f, 1f);
+        private static readonly Color BackgroundColor = new Color(0.085f, 0.075f, 0.18f, 0.24f);
+        private static readonly Color PanelColor = new Color(0.14f, 0.12f, 0.28f, 0.42f);
+        private static readonly Color PanelAccentColor = new Color(0.78f, 0.62f, 1f, 0.9f);
         private static readonly Color ButtonColor = new Color(1f, 0.34f, 0.29f, 1f);
         private static readonly Color ButtonHoverColor = new Color(1f, 0.48f, 0.39f, 1f);
         private static readonly Color BodyTextColor = new Color(0.82f, 0.9f, 0.98f, 1f);
@@ -309,20 +309,24 @@ namespace CubeNinja.UI
         private void BuildGameOver()
         {
             var blocker = gameOverRoot.AddComponent<Image>();
-            blocker.color = new Color(0f, 0f, 0f, 0.72f);
+            blocker.color = BackgroundColor;
 
-            var title = CreateText("Game Over Title", gameOverRoot.transform, "GAME OVER", 72f, FontStyles.Bold, Color.white, TextAlignmentOptions.Center);
-            Anchor(title.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 90f), new Vector2(-96f, 92f));
+            var panel = CreatePanel("Game Over Panel", gameOverRoot.transform, PanelColor, PanelAccentColor);
+            var panelRect = panel.GetComponent<RectTransform>();
+            Anchor(panelRect, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, 390f));
+
+            var title = CreateText("Game Over Title", panel.transform, "GAME OVER", 72f, FontStyles.Bold, Color.white, TextAlignmentOptions.Center);
+            Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -58f), new Vector2(-80f, 92f));
             title.characterSpacing = 6f;
 
-            gameOverScoreText = CreateText("Final Score", gameOverRoot.transform, "Final Score 0", 30f, FontStyles.Bold, BodyTextColor, TextAlignmentOptions.Center);
-            Anchor(gameOverScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 30f), new Vector2(-96f, 44f));
+            gameOverScoreText = CreateText("Final Score", panel.transform, "Final Score 0", 30f, FontStyles.Bold, BodyTextColor, TextAlignmentOptions.Center);
+            Anchor(gameOverScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 24f), new Vector2(-80f, 44f));
 
-            gameOverHighScoreText = CreateText("Final High Score", gameOverRoot.transform, "Best 0", 22f, FontStyles.Bold, ComboPopupColor, TextAlignmentOptions.Center);
-            Anchor(gameOverHighScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -12f), new Vector2(-96f, 34f));
+            gameOverHighScoreText = CreateText("Final High Score", panel.transform, "Best 0", 22f, FontStyles.Bold, ComboPopupColor, TextAlignmentOptions.Center);
+            Anchor(gameOverHighScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -18f), new Vector2(-80f, 34f));
 
-            var restartButton = CreateButton("Restart Button", gameOverRoot.transform, "RESTART", ButtonColor, ButtonHoverColor);
-            Anchor(restartButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -88f), new Vector2(210f, 58f));
+            var restartButton = CreateButton("Restart Button", panel.transform, "RESTART", ButtonColor, ButtonHoverColor);
+            Anchor(restartButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 58f), new Vector2(210f, 58f));
             restartButton.onClick.AddListener(() => RestartRequested?.Invoke());
         }
 
@@ -609,6 +613,10 @@ namespace CubeNinja.UI
             var outline = panel.AddComponent<Outline>();
             outline.effectColor = borderColor;
             outline.effectDistance = new Vector2(2f, -2f);
+
+            var shadow = panel.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0.02f, 0.015f, 0.05f, 0.28f);
+            shadow.effectDistance = new Vector2(0f, -8f);
 
             return panel;
         }

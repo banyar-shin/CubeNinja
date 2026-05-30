@@ -20,13 +20,13 @@ namespace CubeNinja.Editor
             EnsureFolders();
 
             var regular = GetOrCreateAsset<CubeTypeDefinition>($"{ConfigFolder}/RegularCube.asset");
-            ConfigureCubeType(regular, "cube.regular", "Regular Cube", new Color(0.22f, 0.85f, 0.32f, 1f), 1, CubeClickOutcome.Score);
+            ConfigureCubeType(regular, "cube.regular", "Regular Cube", new Color(0.62f, 0.82f, 0.64f, 1f), 1, CubeClickOutcome.Score);
 
             var bonus = GetOrCreateAsset<CubeTypeDefinition>($"{ConfigFolder}/BonusCube.asset");
-            ConfigureCubeType(bonus, "cube.bonus", "Bonus Cube", new Color(0.95f, 0.18f, 0.14f, 1f), 2, CubeClickOutcome.Score);
+            ConfigureCubeType(bonus, "cube.bonus", "Bonus Cube", new Color(1f, 0.42f, 0.34f, 1f), 2, CubeClickOutcome.Score);
 
             var danger = GetOrCreateAsset<CubeTypeDefinition>($"{ConfigFolder}/DangerCube.asset");
-            ConfigureCubeType(danger, "cube.danger", "Danger Cube", new Color(0.03f, 0.03f, 0.035f, 1f), 0, CubeClickOutcome.LoseLife);
+            ConfigureCubeType(danger, "cube.danger", "Danger Cube", new Color(0.115f, 0.09f, 0.17f, 1f), 0, CubeClickOutcome.LoseLife);
 
             var settings = GetOrCreateAsset<CubeSpawnSettings>($"{ConfigFolder}/DefaultCubeSpawnSettings.asset");
             ConfigureSpawnSettings(settings, regular, bonus, danger);

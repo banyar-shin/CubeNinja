@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   typeId: cube.danger
   displayName: Danger Cube
-  color: {r: 0.03, g: 0.03, b: 0.035, a: 1}
+  color: {r: 0.115, g: 0.09, b: 0.17, a: 1}
   pointValue: 0
   clickOutcome: 1

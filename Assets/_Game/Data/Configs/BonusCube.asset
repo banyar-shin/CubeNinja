@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   typeId: cube.bonus
   displayName: Bonus Cube
-  color: {r: 0.95, g: 0.18, b: 0.14, a: 1}
+  color: {r: 1, g: 0.42, b: 0.34, a: 1}
   pointValue: 2
   clickOutcome: 0
