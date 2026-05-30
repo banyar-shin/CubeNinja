@@ -1,7 +1,10 @@
 {
   "name": "CubeNinja.UI",
   "rootNamespace": "CubeNinja.UI",
-  "references": [],
+  "references": [
+    "UnityEngine.UI",
+    "Unity.TextMeshPro"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

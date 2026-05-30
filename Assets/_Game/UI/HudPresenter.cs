@@ -1,340 +1,743 @@
 using System;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace CubeNinja.UI
 {
     public sealed class HudPresenter : MonoBehaviour
     {
         private const float PopupLifetimeSeconds = 0.75f;
+        private const float ClickEffectLifetimeSeconds = 0.32f;
         private const float DamageFlashDurationSeconds = 0.55f;
+        private const int EdgeGlowBands = 5;
+        private const int ClickEffectPixelCount = 14;
+
+        private static readonly Color BackgroundColor = new Color(0.085f, 0.075f, 0.18f, 0.44f);
+        private static readonly Color PanelColor = new Color(0.12f, 0.105f, 0.24f, 0.92f);
+        private static readonly Color PanelAccentColor = new Color(0.62f, 0.44f, 0.86f, 1f);
+        private static readonly Color ButtonColor = new Color(1f, 0.34f, 0.29f, 1f);
+        private static readonly Color ButtonHoverColor = new Color(1f, 0.48f, 0.39f, 1f);
+        private static readonly Color BodyTextColor = new Color(0.82f, 0.9f, 0.98f, 1f);
+        private static readonly Color MutedTextColor = new Color(0.58f, 0.68f, 0.76f, 1f);
+        private static readonly Color ScorePopupColor = new Color(1f, 1f, 1f, 1f);
+        private static readonly Color ComboPopupColor = new Color(1f, 0.91f, 0.24f, 1f);
+        private static readonly Color DamageColor = new Color(1f, 0.05f, 0.03f, 1f);
 
         [SerializeField] private Camera mainCamera;
 
-        private readonly List<Popup> popups = new List<Popup>();
-        private GUIStyle scoreStyle;
-        private GUIStyle popupStyle;
-        private GUIStyle centeredStyle;
-        private GUIStyle menuTitleStyle;
-        private GUIStyle menuHeaderStyle;
-        private GUIStyle menuBodyStyle;
+        private readonly List<FloatingPopup> activePopups = new List<FloatingPopup>();
+        private readonly List<ClickPixelEffect> activeClickEffects = new List<ClickPixelEffect>();
+        private readonly List<GameObject> legendRows = new List<GameObject>();
+
+        private Canvas canvas;
+        private RectTransform canvasRect;
+        private RectTransform popupRoot;
+        private RectTransform clickEffectRoot;
+        private GameObject hudRoot;
+        private GameObject startMenuRoot;
+        private GameObject gameOverRoot;
+        private GameObject comboBadge;
+        private RectTransform legendContent;
+        private Image[] lifeImages;
+        private Image[] edgeGlowImages;
+        private TMP_Text scoreText;
+        private TMP_Text highScoreText;
+        private TMP_Text menuHighScoreText;
+        private TMP_Text comboText;
+        private TMP_Text gameOverScoreText;
+        private TMP_Text gameOverHighScoreText;
+        private TMP_Text comboRuleText;
         private int score;
+        private int highScore;
         private int lives;
         private int comboMultiplier;
         private float comboRemainingSeconds;
         private float comboWindowSeconds = 0.5f;
         private float damageFlashStartTime = float.NegativeInfinity;
-        private LegendEntry[] legendEntries = new LegendEntry[0];
+        private LegendEntry[] legendEntries = Array.Empty<LegendEntry>();
         private bool startMenuVisible;
         private bool gameOver;
+        private bool built;
 
         public event Action StartRequested;
         public event Action RestartRequested;
+
+        private void Awake()
+        {
+            BuildUi();
+            RefreshHud();
+            RefreshMenu();
+            RefreshGameOver();
+        }
+
+        private void Update()
+        {
+            if (!built)
+            {
+                return;
+            }
+
+            UpdateDamageGlow();
+            if (Input.GetMouseButtonDown(0))
+            {
+                CreateClickEffect(Input.mousePosition);
+            }
+
+            UpdatePopups();
+            UpdateClickEffects();
+        }
 
         public void SetCamera(Camera camera)
         {
             mainCamera = camera;
         }
 
-        public void SetRunState(int newScore, int remainingLives, int combo, float comboRemaining, bool isGameOver)
+        public void SetRunState(int newScore, int bestScore, int remainingLives, int combo, float comboRemaining, bool isGameOver)
         {
             score = Mathf.Max(0, newScore);
+            highScore = Mathf.Max(0, bestScore);
             lives = Mathf.Max(0, remainingLives);
             comboMultiplier = Mathf.Max(0, combo);
             comboRemainingSeconds = Mathf.Max(0f, comboRemaining);
             gameOver = isGameOver;
+
+            BuildUi();
+            RefreshHud();
+            RefreshMenu();
+            RefreshGameOver();
         }
 
         public void SetStartMenuVisible(bool visible)
         {
             startMenuVisible = visible;
+            BuildUi();
+            RefreshMenu();
         }
 
         public void SetStartMenuInfo(LegendEntry[] entries, float comboWindow)
         {
-            legendEntries = entries ?? new LegendEntry[0];
+            legendEntries = entries ?? Array.Empty<LegendEntry>();
             comboWindowSeconds = Mathf.Max(0.01f, comboWindow);
+
+            BuildUi();
+            RebuildLegend();
+            RefreshMenu();
         }
 
         public void ShowScorePopup(Vector3 worldPosition, int pointsAdded, int multiplier)
         {
-            var text = multiplier > 1
-                ? $"+{Mathf.Max(0, pointsAdded)}  Combo x{multiplier}"
-                : $"+{Mathf.Max(0, pointsAdded)}";
-            var color = multiplier > 1 ? new Color(1f, 0.92f, 0.32f, 1f) : Color.white;
-            popups.Add(new Popup(worldPosition, text, color, Time.time));
+            BuildUi();
+
+            var safePoints = Mathf.Max(0, pointsAdded);
+            var text = multiplier > 1 ? $"+{safePoints}  Combo x{multiplier}" : $"+{safePoints}";
+            var color = multiplier > 1 ? ComboPopupColor : ScorePopupColor;
+            CreateFloatingPopup(worldPosition, text, color, multiplier > 1 ? 32f : 28f);
         }
 
         public void ShowLifeLostPopup(Vector3 worldPosition)
         {
-            popups.Add(new Popup(worldPosition, "Life -1", new Color(1f, 0.25f, 0.2f, 1f), Time.time));
+            BuildUi();
+            CreateFloatingPopup(worldPosition, "Life -1", new Color(1f, 0.23f, 0.18f, 1f), 28f);
             damageFlashStartTime = Time.time;
+            UpdateDamageGlow();
         }
 
         public void ClearPopups()
         {
-            popups.Clear();
+            for (var i = activePopups.Count - 1; i >= 0; i--)
+            {
+                if (activePopups[i].GameObject != null)
+                {
+                    Destroy(activePopups[i].GameObject);
+                }
+            }
+
+            activePopups.Clear();
+
+            for (var i = activeClickEffects.Count - 1; i >= 0; i--)
+            {
+                if (activeClickEffects[i].GameObject != null)
+                {
+                    Destroy(activeClickEffects[i].GameObject);
+                }
+            }
+
+            activeClickEffects.Clear();
             damageFlashStartTime = float.NegativeInfinity;
+            UpdateDamageGlow();
         }
 
-        private void OnGUI()
+        private void BuildUi()
         {
-            EnsureStyles();
-
-            if (startMenuVisible)
+            if (built)
             {
-                DrawStartMenuOverlay();
                 return;
             }
 
-            DrawDamageFlash();
-            DrawTopBar();
-            DrawPopups();
+            EnsureEventSystem();
 
-            if (gameOver)
+            var canvasObject = CreateUiObject("CubeNinja Canvas", transform);
+            canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
+
+            var scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 0.5f;
+
+            canvasObject.AddComponent<GraphicRaycaster>();
+            canvasRect = canvasObject.GetComponent<RectTransform>();
+            Stretch(canvasRect);
+
+            hudRoot = CreateUiObject("HUD", canvasRect);
+            Stretch(hudRoot.GetComponent<RectTransform>());
+            BuildHud();
+
+            popupRoot = CreateUiObject("Floating Popups", canvasRect).GetComponent<RectTransform>();
+            Stretch(popupRoot);
+
+            startMenuRoot = CreateUiObject("Start Menu", canvasRect);
+            Stretch(startMenuRoot.GetComponent<RectTransform>());
+            BuildStartMenu();
+
+            gameOverRoot = CreateUiObject("Game Over", canvasRect);
+            Stretch(gameOverRoot.GetComponent<RectTransform>());
+            BuildGameOver();
+
+            BuildEdgeGlow();
+
+            clickEffectRoot = CreateUiObject("Click Pixel Effects", canvasRect).GetComponent<RectTransform>();
+            Stretch(clickEffectRoot);
+
+            built = true;
+        }
+
+        private void BuildHud()
+        {
+            var scorePanel = CreatePanel("Score Panel", hudRoot.transform, new Color(0.12f, 0.105f, 0.24f, 0.78f), PanelAccentColor);
+            var scoreRect = scorePanel.GetComponent<RectTransform>();
+            Anchor(scoreRect, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(28f, -26f), new Vector2(320f, 86f));
+            scoreText = CreateText("Score", scorePanel.transform, "Score 0", 33f, FontStyles.Bold, Color.white, TextAlignmentOptions.MidlineLeft);
+            Anchor(scoreText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(24f, -8f), new Vector2(-42f, 44f));
+
+            highScoreText = CreateText("High Score", scorePanel.transform, "Best 0", 17f, FontStyles.Bold, ComboPopupColor, TextAlignmentOptions.Left);
+            highScoreText.textWrappingMode = TextWrappingModes.NoWrap;
+            Anchor(highScoreText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(24f, 12f), new Vector2(-42f, 24f));
+
+            comboBadge = CreatePanel("Combo Badge", hudRoot.transform, new Color(0.96f, 0.58f, 0.48f, 0.9f), ButtonHoverColor);
+            var comboRect = comboBadge.GetComponent<RectTransform>();
+            Anchor(comboRect, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(300f, 60f));
+            comboText = CreateText("Combo", comboBadge.transform, "Combo x2", 28f, FontStyles.Bold, new Color(0.13f, 0.055f, 0.015f, 1f), TextAlignmentOptions.Center);
+            Stretch(comboText.rectTransform, new Vector2(12f, 0f), new Vector2(-12f, 0f));
+
+            var livesPanel = CreatePanel("Lives Panel", hudRoot.transform, new Color(0.12f, 0.105f, 0.24f, 0.78f), ButtonColor);
+            var livesRect = livesPanel.GetComponent<RectTransform>();
+            Anchor(livesRect, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-28f, -26f), new Vector2(176f, 70f));
+
+            var livesLayout = livesPanel.AddComponent<HorizontalLayoutGroup>();
+            livesLayout.padding = new RectOffset(18, 18, 16, 16);
+            livesLayout.spacing = 12f;
+            livesLayout.childAlignment = TextAnchor.MiddleCenter;
+            livesLayout.childControlWidth = true;
+            livesLayout.childControlHeight = true;
+            livesLayout.childForceExpandWidth = false;
+            livesLayout.childForceExpandHeight = false;
+
+            lifeImages = new Image[3];
+            for (var i = 0; i < lifeImages.Length; i++)
             {
-                DrawGameOverOverlay();
-                DrawEdgeGlow(0.65f);
+                var life = CreateUiObject($"Life {i + 1}", livesPanel.transform);
+                var image = life.AddComponent<Image>();
+                image.color = new Color(0.94f, 0.16f, 0.18f, 1f);
+                image.raycastTarget = false;
+                var layout = life.AddComponent<LayoutElement>();
+                layout.preferredWidth = 34f;
+                layout.preferredHeight = 34f;
+                lifeImages[i] = image;
             }
         }
 
-        private void DrawTopBar()
+        private void BuildStartMenu()
         {
-            GUI.Label(new Rect(24f, 18f, 240f, 38f), $"Score {score}", scoreStyle);
+            var blocker = startMenuRoot.AddComponent<Image>();
+            blocker.color = BackgroundColor;
 
-            if (comboMultiplier > 1 && comboRemainingSeconds > 0f)
-            {
-                popupStyle.normal.textColor = Color.white;
-                GUI.Label(new Rect(24f, 54f, 180f, 28f), $"Combo x{comboMultiplier}", popupStyle);
-            }
+            var panel = CreatePanel("Menu Panel", startMenuRoot.transform, PanelColor, PanelAccentColor);
+            var panelRect = panel.GetComponent<RectTransform>();
+            Anchor(panelRect, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(880f, 700f));
 
-            DrawLifeCubes();
+            var title = CreateText("Title", panel.transform, "CUBE NINJA", 56f, FontStyles.Bold, Color.white, TextAlignmentOptions.Center);
+            Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -44f), new Vector2(-72f, 76f));
+            title.characterSpacing = 5f;
+
+            var subtitle = CreateText(
+                "Subtitle",
+                panel.transform,
+                "Hit the scoring cubes. Chain hits. Do not click the danger cube.",
+                22f,
+                FontStyles.Normal,
+                BodyTextColor,
+                TextAlignmentOptions.Center);
+            Anchor(subtitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -120f), new Vector2(-96f, 54f));
+
+            menuHighScoreText = CreateText("Menu High Score", panel.transform, "Best 0", 20f, FontStyles.Bold, ComboPopupColor, TextAlignmentOptions.Left);
+            menuHighScoreText.textWrappingMode = TextWrappingModes.NoWrap;
+            Anchor(menuHighScoreText.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(64f, 70f), new Vector2(220f, 30f));
+
+            var cubesHeader = CreateText("Cube Header", panel.transform, "Cube Rules", 24f, FontStyles.Bold, Color.white, TextAlignmentOptions.Left);
+            Anchor(cubesHeader.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -176f), new Vector2(-128f, 32f));
+
+            legendContent = CreateUiObject("Cube Legend", panel.transform).GetComponent<RectTransform>();
+            Anchor(legendContent, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -222f), new Vector2(-128f, 210f));
+
+            var comboHeader = CreateText("Combo Header", panel.transform, "Combo Window", 24f, FontStyles.Bold, Color.white, TextAlignmentOptions.Left);
+            Anchor(comboHeader.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -462f), new Vector2(-128f, 32f));
+
+            comboRuleText = CreateText("Combo Rule", panel.transform, string.Empty, 20f, FontStyles.Normal, BodyTextColor, TextAlignmentOptions.Left);
+            comboRuleText.textWrappingMode = TextWrappingModes.Normal;
+            Anchor(comboRuleText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -500f), new Vector2(-128f, 62f));
+
+            var startButton = CreateButton("Start Button", panel.transform, "START RUN", ButtonColor, ButtonHoverColor);
+            Anchor(startButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 52f), new Vector2(230f, 62f));
+            startButton.onClick.AddListener(() => StartRequested?.Invoke());
         }
 
-        private void DrawStartMenuOverlay()
+        private void BuildGameOver()
         {
-            var oldColor = GUI.color;
-            GUI.color = new Color(0.02f, 0.025f, 0.035f, 0.92f);
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
-            GUI.color = oldColor;
+            var blocker = gameOverRoot.AddComponent<Image>();
+            blocker.color = new Color(0f, 0f, 0f, 0.72f);
 
-            var width = Mathf.Min(640f, Screen.width - 48f);
-            var height = Mathf.Min(560f, Screen.height - 48f);
-            var panel = new Rect((Screen.width - width) * 0.5f, (Screen.height - height) * 0.5f, width, height);
+            var title = CreateText("Game Over Title", gameOverRoot.transform, "GAME OVER", 72f, FontStyles.Bold, Color.white, TextAlignmentOptions.Center);
+            Anchor(title.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 90f), new Vector2(-96f, 92f));
+            title.characterSpacing = 6f;
 
-            GUI.Box(panel, GUIContent.none);
+            gameOverScoreText = CreateText("Final Score", gameOverRoot.transform, "Final Score 0", 30f, FontStyles.Bold, BodyTextColor, TextAlignmentOptions.Center);
+            Anchor(gameOverScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 30f), new Vector2(-96f, 44f));
 
-            var x = panel.x + 34f;
-            var y = panel.y + 24f;
-            var contentWidth = panel.width - 68f;
+            gameOverHighScoreText = CreateText("Final High Score", gameOverRoot.transform, "Best 0", 22f, FontStyles.Bold, ComboPopupColor, TextAlignmentOptions.Center);
+            Anchor(gameOverHighScoreText.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -12f), new Vector2(-96f, 34f));
 
-            GUI.Label(new Rect(x, y, contentWidth, 48f), "Cube Ninja", menuTitleStyle);
-            y += 58f;
+            var restartButton = CreateButton("Restart Button", gameOverRoot.transform, "RESTART", ButtonColor, ButtonHoverColor);
+            Anchor(restartButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -88f), new Vector2(210f, 58f));
+            restartButton.onClick.AddListener(() => RestartRequested?.Invoke());
+        }
 
-            GUI.Label(
-                new Rect(x, y, contentWidth, 44f),
-                "Click scoring cubes before they fall. Keep the streak alive, and leave danger cubes alone.",
-                menuBodyStyle);
-            y += 62f;
+        private void BuildEdgeGlow()
+        {
+            var root = CreateUiObject("Red Edge Glow", canvasRect);
+            Stretch(root.GetComponent<RectTransform>());
 
-            GUI.Label(new Rect(x, y, contentWidth, 28f), "Cubes", menuHeaderStyle);
-            y += 34f;
+            edgeGlowImages = new Image[EdgeGlowBands * 4];
+            for (var band = 0; band < EdgeGlowBands; band++)
+            {
+                var index = band * 4;
+                edgeGlowImages[index] = CreateEdgeBand(root.transform, $"Top Edge {band}", EdgeSide.Top, band);
+                edgeGlowImages[index + 1] = CreateEdgeBand(root.transform, $"Bottom Edge {band}", EdgeSide.Bottom, band);
+                edgeGlowImages[index + 2] = CreateEdgeBand(root.transform, $"Left Edge {band}", EdgeSide.Left, band);
+                edgeGlowImages[index + 3] = CreateEdgeBand(root.transform, $"Right Edge {band}", EdgeSide.Right, band);
+            }
+
+            SetEdgeGlowIntensity(0f);
+        }
+
+        private void RefreshHud()
+        {
+            if (!built || hudRoot == null || scoreText == null || highScoreText == null || comboBadge == null || comboText == null || lifeImages == null)
+            {
+                return;
+            }
+
+            hudRoot.SetActive(!startMenuVisible);
+            scoreText.text = $"Score {score}";
+            highScoreText.text = $"Best {highScore}";
+
+            var comboActive = comboMultiplier > 1 && comboRemainingSeconds > 0f && !gameOver;
+            comboBadge.SetActive(comboActive);
+            if (comboActive)
+            {
+                comboText.text = $"Combo x{comboMultiplier}";
+            }
+
+            for (var i = 0; i < lifeImages.Length; i++)
+            {
+                lifeImages[i].color = i < lives
+                    ? new Color(0.94f, 0.16f, 0.18f, 1f)
+                    : new Color(0.18f, 0.15f, 0.28f, 0.82f);
+            }
+        }
+
+        private void RefreshMenu()
+        {
+            if (!built || startMenuRoot == null || hudRoot == null || comboRuleText == null || legendContent == null || menuHighScoreText == null)
+            {
+                return;
+            }
+
+            startMenuRoot.SetActive(startMenuVisible);
+            hudRoot.SetActive(!startMenuVisible);
+            menuHighScoreText.text = $"Best {highScore}";
+            comboRuleText.text = $"Score again within {comboWindowSeconds:0.##} seconds to grow the multiplier. A streak turns +1 into +2, +3, and more.";
+        }
+
+        private void RefreshGameOver()
+        {
+            if (!built || gameOverRoot == null || gameOverScoreText == null || gameOverHighScoreText == null)
+            {
+                return;
+            }
+
+            gameOverRoot.SetActive(gameOver && !startMenuVisible);
+            gameOverScoreText.text = $"Final Score {score}";
+            gameOverHighScoreText.text = $"Best {highScore}";
+            UpdateDamageGlow();
+        }
+
+        private void RebuildLegend()
+        {
+            if (legendContent == null)
+            {
+                return;
+            }
+
+            for (var i = legendRows.Count - 1; i >= 0; i--)
+            {
+                if (legendRows[i] != null)
+                {
+                    Destroy(legendRows[i]);
+                }
+            }
+
+            legendRows.Clear();
 
             for (var i = 0; i < legendEntries.Length; i++)
             {
                 var entry = legendEntries[i];
-                DrawLegendEntry(new Rect(x, y, contentWidth, 46f), entry);
-                y += 52f;
-            }
+                var row = CreateUiObject($"{entry.Name} Row", legendContent);
+                var rowRect = row.GetComponent<RectTransform>();
+                Anchor(rowRect, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, -i * 68f), new Vector2(0f, 60f));
 
-            y += 10f;
-            GUI.Label(new Rect(x, y, contentWidth, 28f), "Combos", menuHeaderStyle);
-            y += 34f;
-            GUI.Label(
-                new Rect(x, y, contentWidth, 64f),
-                $"After each scoring click, you have {comboWindowSeconds:0.##} seconds to click another scoring cube. Each hit in that window grows the multiplier: x2, x3, and higher.",
-                menuBodyStyle);
+                var swatch = CreateUiObject("Swatch", row.transform);
+                var swatchImage = swatch.AddComponent<Image>();
+                swatchImage.color = entry.Color;
+                swatchImage.raycastTarget = false;
+                var swatchOutline = swatch.AddComponent<Outline>();
+                swatchOutline.effectColor = new Color(1f, 1f, 1f, 0.26f);
+                swatchOutline.effectDistance = new Vector2(1f, -1f);
+                Anchor(swatch.GetComponent<RectTransform>(), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(46f, 46f));
 
-            var buttonRect = new Rect(panel.center.x - 82f, panel.yMax - 72f, 164f, 44f);
-            if (GUI.Button(buttonRect, "Start"))
-            {
-                StartRequested?.Invoke();
+                var title = CreateText("Name", row.transform, entry.Name, 18f, FontStyles.Bold, Color.white, TextAlignmentOptions.Left);
+                title.textWrappingMode = TextWrappingModes.NoWrap;
+                title.enableAutoSizing = true;
+                title.fontSizeMin = 14f;
+                title.fontSizeMax = 18f;
+                Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -2f), new Vector2(-64f, 24f));
+
+                var detail = CreateText("Description", row.transform, entry.Description, 15f, FontStyles.Normal, MutedTextColor, TextAlignmentOptions.Left);
+                detail.textWrappingMode = TextWrappingModes.Normal;
+                detail.enableAutoSizing = true;
+                detail.fontSizeMin = 12f;
+                detail.fontSizeMax = 15f;
+                Anchor(detail.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -28f), new Vector2(-64f, 32f));
+
+                legendRows.Add(row);
             }
         }
 
-        private void DrawLegendEntry(Rect rect, LegendEntry entry)
-        {
-            var oldColor = GUI.color;
-            var swatch = new Rect(rect.x, rect.y + 7f, 30f, 30f);
-            GUI.color = entry.Color;
-            GUI.DrawTexture(swatch, Texture2D.whiteTexture);
-            GUI.color = Color.white;
-            GUI.Box(swatch, GUIContent.none);
-
-            GUI.color = oldColor;
-            GUI.Label(new Rect(rect.x + 46f, rect.y, rect.width - 46f, 22f), entry.Name, menuHeaderStyle);
-            GUI.Label(new Rect(rect.x + 46f, rect.y + 22f, rect.width - 46f, 24f), entry.Description, menuBodyStyle);
-        }
-
-        private void DrawDamageFlash()
-        {
-            var age = Time.time - damageFlashStartTime;
-            if (age < 0f || age > DamageFlashDurationSeconds)
-            {
-                return;
-            }
-
-            var intensity = 1f - age / DamageFlashDurationSeconds;
-            DrawEdgeGlow(intensity);
-        }
-
-        private void DrawEdgeGlow(float intensity)
-        {
-            var edgeDepth = Mathf.Max(24f, Mathf.Min(Screen.width, Screen.height) * 0.12f);
-            const int bands = 5;
-            var bandDepth = edgeDepth / bands;
-            var oldColor = GUI.color;
-
-            for (var i = 0; i < bands; i++)
-            {
-                var bandAlpha = 0.36f * intensity * (1f - i / (float)bands);
-                var offset = i * bandDepth;
-                GUI.color = new Color(1f, 0.05f, 0.03f, bandAlpha);
-
-                GUI.DrawTexture(new Rect(0f, offset, Screen.width, bandDepth), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(0f, Screen.height - offset - bandDepth, Screen.width, bandDepth), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(offset, 0f, bandDepth, Screen.height), Texture2D.whiteTexture);
-                GUI.DrawTexture(new Rect(Screen.width - offset - bandDepth, 0f, bandDepth, Screen.height), Texture2D.whiteTexture);
-            }
-
-            GUI.color = oldColor;
-        }
-
-        private void DrawLifeCubes()
-        {
-            const float size = 22f;
-            const float gap = 8f;
-            var startX = Screen.width - 24f - ((size + gap) * 3f);
-            var y = 22f;
-            var oldColor = GUI.color;
-
-            for (var i = 0; i < 3; i++)
-            {
-                var rect = new Rect(startX + ((size + gap) * i), y, size, size);
-                GUI.color = i < lives ? new Color(0.94f, 0.16f, 0.18f, 1f) : new Color(0.18f, 0.18f, 0.2f, 0.7f);
-                GUI.DrawTexture(rect, Texture2D.whiteTexture);
-                GUI.color = Color.white;
-                GUI.Box(rect, GUIContent.none);
-            }
-
-            GUI.color = oldColor;
-        }
-
-        private void DrawPopups()
+        private void CreateFloatingPopup(Vector3 worldPosition, string text, Color color, float fontSize)
         {
             if (mainCamera == null)
             {
                 mainCamera = Camera.main;
             }
 
-            for (var i = popups.Count - 1; i >= 0; i--)
-            {
-                var popup = popups[i];
-                var age = Time.time - popup.StartTime;
-                if (age >= PopupLifetimeSeconds)
-                {
-                    popups.RemoveAt(i);
-                    continue;
-                }
+            var screenPoint = mainCamera != null
+                ? mainCamera.WorldToScreenPoint(worldPosition)
+                : new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f);
 
-                if (mainCamera == null)
-                {
-                    continue;
-                }
-
-                var screenPoint = mainCamera.WorldToScreenPoint(popup.WorldPosition);
-                if (screenPoint.z < 0f)
-                {
-                    continue;
-                }
-
-                var alpha = 1f - age / PopupLifetimeSeconds;
-                popupStyle.normal.textColor = new Color(popup.Color.r, popup.Color.g, popup.Color.b, alpha);
-                var rect = new Rect(screenPoint.x - 70f, Screen.height - screenPoint.y - 42f - age * 36f, 140f, 26f);
-                GUI.Label(rect, popup.Text, popupStyle);
-            }
-        }
-
-        private void DrawGameOverOverlay()
-        {
-            var oldColor = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, 0.68f);
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
-            GUI.color = oldColor;
-
-            var centerY = Screen.height * 0.5f - 86f;
-            popupStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect(0f, centerY, Screen.width, 52f), "Game Over", centeredStyle);
-            GUI.Label(new Rect(0f, centerY + 48f, Screen.width, 36f), $"Final Score {score}", popupStyle);
-
-            var buttonRect = new Rect(Screen.width * 0.5f - 70f, centerY + 96f, 140f, 42f);
-            if (GUI.Button(buttonRect, "Restart"))
-            {
-                RestartRequested?.Invoke();
-            }
-        }
-
-        private void EnsureStyles()
-        {
-            if (scoreStyle != null)
+            if (screenPoint.z < 0f)
             {
                 return;
             }
 
-            scoreStyle = new GUIStyle(GUI.skin.label)
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(popupRoot, screenPoint, null, out var localPoint);
+
+            var popupText = CreateText("Score Popup", popupRoot, text, fontSize, FontStyles.Bold, color, TextAlignmentOptions.Center);
+            popupText.outlineWidth = 0.08f;
+            popupText.outlineColor = new Color(0f, 0f, 0f, 0.9f);
+            popupText.rectTransform.anchoredPosition = localPoint;
+            popupText.rectTransform.sizeDelta = new Vector2(360f, 66f);
+            popupText.raycastTarget = false;
+
+            activePopups.Add(new FloatingPopup(popupText.gameObject, popupText.rectTransform, popupText, localPoint, Time.time, color));
+        }
+
+        private void CreateClickEffect(Vector2 screenPosition)
+        {
+            if (clickEffectRoot == null)
             {
-                fontSize = 26,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
+                return;
+            }
+
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(clickEffectRoot, screenPosition, null, out var localPoint);
+
+            for (var i = 0; i < ClickEffectPixelCount; i++)
+            {
+                var angle = Mathf.PI * 2f * i / ClickEffectPixelCount;
+                var direction = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                var startRadius = i % 2 == 0 ? 5f : 10f;
+                var travelDistance = i % 3 == 0 ? 60f : 44f;
+                var startSize = i % 3 == 0 ? 6f : 4f;
+
+                var pixelObject = CreateUiObject("Click Pixel", clickEffectRoot);
+                var image = pixelObject.AddComponent<Image>();
+                image.color = Color.white;
+                image.raycastTarget = false;
+
+                var rect = pixelObject.GetComponent<RectTransform>();
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = localPoint + direction * startRadius;
+                rect.sizeDelta = Vector2.one * startSize;
+                rect.localRotation = Quaternion.Euler(0f, 0f, angle * Mathf.Rad2Deg);
+
+                activeClickEffects.Add(new ClickPixelEffect(pixelObject, rect, image, localPoint, direction, startRadius, travelDistance, startSize, Time.time));
+            }
+        }
+
+        private void UpdatePopups()
+        {
+            for (var i = activePopups.Count - 1; i >= 0; i--)
+            {
+                var popup = activePopups[i];
+                var age = Time.time - popup.StartTime;
+                if (age >= PopupLifetimeSeconds)
+                {
+                    if (popup.GameObject != null)
+                    {
+                        Destroy(popup.GameObject);
+                    }
+
+                    activePopups.RemoveAt(i);
+                    continue;
+                }
+
+                var t = age / PopupLifetimeSeconds;
+                popup.RectTransform.anchoredPosition = popup.StartPosition + Vector2.up * (68f * t);
+                popup.Text.color = new Color(popup.Color.r, popup.Color.g, popup.Color.b, 1f - t);
+            }
+        }
+
+        private void UpdateClickEffects()
+        {
+            for (var i = activeClickEffects.Count - 1; i >= 0; i--)
+            {
+                var effect = activeClickEffects[i];
+                var age = Time.time - effect.StartTime;
+                if (age >= ClickEffectLifetimeSeconds)
+                {
+                    if (effect.GameObject != null)
+                    {
+                        Destroy(effect.GameObject);
+                    }
+
+                    activeClickEffects.RemoveAt(i);
+                    continue;
+                }
+
+                var t = age / ClickEffectLifetimeSeconds;
+                var eased = 1f - (1f - t) * (1f - t);
+                var distance = effect.StartRadius + effect.TravelDistance * eased;
+                effect.RectTransform.anchoredPosition = effect.Origin + effect.Direction * distance;
+                effect.RectTransform.sizeDelta = Vector2.one * Mathf.Lerp(effect.StartSize, 1f, t);
+                effect.Image.color = new Color(1f, 1f, 1f, 1f - t);
+            }
+        }
+
+        private void UpdateDamageGlow()
+        {
+            if (!built)
+            {
+                return;
+            }
+
+            if (gameOver && !startMenuVisible)
+            {
+                SetEdgeGlowIntensity(0.65f);
+                return;
+            }
+
+            var age = Time.time - damageFlashStartTime;
+            if (age < 0f || age > DamageFlashDurationSeconds)
+            {
+                SetEdgeGlowIntensity(0f);
+                return;
+            }
+
+            SetEdgeGlowIntensity(1f - age / DamageFlashDurationSeconds);
+        }
+
+        private void SetEdgeGlowIntensity(float intensity)
+        {
+            if (edgeGlowImages == null)
+            {
+                return;
+            }
+
+            var clamped = Mathf.Clamp01(intensity);
+            for (var band = 0; band < EdgeGlowBands; band++)
+            {
+                var bandAlpha = 0.34f * clamped * (1f - band / (float)EdgeGlowBands);
+                for (var side = 0; side < 4; side++)
+                {
+                    edgeGlowImages[(band * 4) + side].color = new Color(DamageColor.r, DamageColor.g, DamageColor.b, bandAlpha);
+                }
+            }
+        }
+
+        private GameObject CreatePanel(string name, Transform parent, Color fillColor, Color borderColor, bool blocksRaycasts = false)
+        {
+            var panel = CreateUiObject(name, parent);
+            var image = panel.AddComponent<Image>();
+            image.color = fillColor;
+            image.raycastTarget = blocksRaycasts;
+
+            var outline = panel.AddComponent<Outline>();
+            outline.effectColor = borderColor;
+            outline.effectDistance = new Vector2(2f, -2f);
+
+            return panel;
+        }
+
+        private Button CreateButton(string name, Transform parent, string label, Color normalColor, Color highlightColor)
+        {
+            var buttonObject = CreateUiObject(name, parent);
+            var image = buttonObject.AddComponent<Image>();
+            image.color = normalColor;
+
+            var button = buttonObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.ColorTint;
+            button.colors = new ColorBlock
+            {
+                normalColor = normalColor,
+                highlightedColor = highlightColor,
+                pressedColor = new Color(0.9f, 0.22f, 0.18f, 1f),
+                selectedColor = highlightColor,
+                disabledColor = new Color(0.25f, 0.25f, 0.25f, 0.55f),
+                colorMultiplier = 1f,
+                fadeDuration = 0.08f
             };
 
-            popupStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 20,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
+            var outline = buttonObject.AddComponent<Outline>();
+            outline.effectColor = new Color(1f, 0.75f, 0.42f, 0.72f);
+            outline.effectDistance = new Vector2(2f, -2f);
 
-            centeredStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 42,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
+            var text = CreateText("Label", buttonObject.transform, label, 24f, FontStyles.Bold, Color.white, TextAlignmentOptions.Center);
+            text.characterSpacing = 2.5f;
+            Stretch(text.rectTransform, new Vector2(10f, 0f), new Vector2(-10f, 0f));
 
-            menuTitleStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 42,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
+            return button;
+        }
 
-            menuHeaderStyle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 18,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
+        private TMP_Text CreateText(string name, Transform parent, string value, float fontSize, FontStyles style, Color color, TextAlignmentOptions alignment)
+        {
+            var textObject = CreateUiObject(name, parent);
+            var text = textObject.AddComponent<TextMeshProUGUI>();
+            text.text = value;
+            text.fontSize = fontSize;
+            text.fontStyle = style;
+            text.color = color;
+            text.alignment = alignment;
+            text.enableAutoSizing = false;
+            text.raycastTarget = false;
+            text.extraPadding = true;
+            text.outlineWidth = 0.08f;
+            text.outlineColor = new Color(0f, 0f, 0f, 0.9f);
 
-            menuBodyStyle = new GUIStyle(GUI.skin.label)
+            return text;
+        }
+
+        private Image CreateEdgeBand(Transform parent, string name, EdgeSide side, int band)
+        {
+            var imageObject = CreateUiObject(name, parent);
+            var image = imageObject.AddComponent<Image>();
+            image.color = Color.clear;
+            image.raycastTarget = false;
+
+            var rect = imageObject.GetComponent<RectTransform>();
+            var bandDepth = 24f;
+            var offset = band * bandDepth;
+
+            switch (side)
             {
-                fontSize = 15,
-                wordWrap = true,
-                normal = { textColor = new Color(0.84f, 0.88f, 0.94f, 1f) }
-            };
+                case EdgeSide.Top:
+                    Anchor(rect, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -offset), new Vector2(0f, bandDepth));
+                    break;
+                case EdgeSide.Bottom:
+                    Anchor(rect, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, offset), new Vector2(0f, bandDepth));
+                    break;
+                case EdgeSide.Left:
+                    Anchor(rect, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(offset, 0f), new Vector2(bandDepth, 0f));
+                    break;
+                case EdgeSide.Right:
+                    Anchor(rect, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(-offset, 0f), new Vector2(bandDepth, 0f));
+                    break;
+            }
+
+            return image;
+        }
+
+        private static GameObject CreateUiObject(string name, Transform parent)
+        {
+            var gameObject = new GameObject(name, typeof(RectTransform));
+            gameObject.transform.SetParent(parent, false);
+            return gameObject;
+        }
+
+        private static void Stretch(RectTransform rect)
+        {
+            Stretch(rect, Vector2.zero, Vector2.zero);
+        }
+
+        private static void Stretch(RectTransform rect, Vector2 offsetMin, Vector2 offsetMax)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+        }
+
+        private static void Anchor(
+            RectTransform rect,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 pivot,
+            Vector2 anchoredPosition,
+            Vector2 sizeDelta)
+        {
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = sizeDelta;
+        }
+
+        private static void EnsureEventSystem()
+        {
+            if (FindFirstObjectByType<EventSystem>() != null)
+            {
+                return;
+            }
+
+            var eventSystem = new GameObject("EventSystem");
+            eventSystem.AddComponent<EventSystem>();
+            eventSystem.AddComponent<StandaloneInputModule>();
         }
 
         public readonly struct LegendEntry
@@ -351,20 +754,67 @@ namespace CubeNinja.UI
             public string Description { get; }
         }
 
-        private readonly struct Popup
+        private sealed class FloatingPopup
         {
-            public Popup(Vector3 worldPosition, string text, Color color, float startTime)
+            public FloatingPopup(GameObject gameObject, RectTransform rectTransform, TMP_Text text, Vector2 startPosition, float startTime, Color color)
             {
-                WorldPosition = worldPosition;
+                GameObject = gameObject;
+                RectTransform = rectTransform;
                 Text = text;
+                StartPosition = startPosition;
+                StartTime = startTime;
                 Color = color;
+            }
+
+            public GameObject GameObject { get; }
+            public RectTransform RectTransform { get; }
+            public TMP_Text Text { get; }
+            public Vector2 StartPosition { get; }
+            public float StartTime { get; }
+            public Color Color { get; }
+        }
+
+        private sealed class ClickPixelEffect
+        {
+            public ClickPixelEffect(
+                GameObject gameObject,
+                RectTransform rectTransform,
+                Image image,
+                Vector2 origin,
+                Vector2 direction,
+                float startRadius,
+                float travelDistance,
+                float startSize,
+                float startTime)
+            {
+                GameObject = gameObject;
+                RectTransform = rectTransform;
+                Image = image;
+                Origin = origin;
+                Direction = direction;
+                StartRadius = startRadius;
+                TravelDistance = travelDistance;
+                StartSize = startSize;
                 StartTime = startTime;
             }
 
-            public Vector3 WorldPosition { get; }
-            public string Text { get; }
-            public Color Color { get; }
+            public GameObject GameObject { get; }
+            public RectTransform RectTransform { get; }
+            public Image Image { get; }
+            public Vector2 Origin { get; }
+            public Vector2 Direction { get; }
+            public float StartRadius { get; }
+            public float TravelDistance { get; }
+            public float StartSize { get; }
             public float StartTime { get; }
+        }
+
+        private enum EdgeSide
+        {
+            Top,
+            Bottom,
+            Left,
+            Right
         }
     }
 }

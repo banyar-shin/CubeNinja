@@ -4,27 +4,40 @@ using CubeNinja.Data;
 using CubeNinja.Gameplay;
 using CubeNinja.UI;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace CubeNinja.Run
 {
     public sealed class CubeNinjaRunDirector : MonoBehaviour, ICubeTargetListener
     {
+        private const string BackgroundResourcePath = "Backgrounds/shrine_background";
+        private const string HighScorePrefsKey = "CubeNinja.HighScore";
+        private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+        private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
+
         [SerializeField] private CubeSpawnSettings spawnSettings;
         [SerializeField] private Camera mainCamera;
         [SerializeField] private HudPresenter hudPresenter;
         [SerializeField] private CubeTarget cubePrefab;
+        [SerializeField] private AudioFeedbackPlayer audioFeedback;
+        [SerializeField] private Texture2D backgroundTexture;
         [SerializeField] private float spawnPlaneZ;
 
         private readonly List<CubeTarget> activeCubes = new List<CubeTarget>();
         private ComponentPool<CubeTarget> cubePool;
         private ScoreComboTracker comboTracker;
+        private Transform backgroundTransform;
+        private MeshRenderer backgroundRenderer;
+        private Material backgroundMaterial;
         private int score;
+        private int highScore;
         private int lives;
         private float spawnTimer;
         private bool waitingToStart;
         private bool gameOver;
 
         public int Score => score;
+        public int HighScore => highScore;
         public int Lives => lives;
         public bool IsGameOver => gameOver;
 
@@ -43,6 +56,7 @@ namespace CubeNinja.Run
 
         private void Awake()
         {
+            highScore = Mathf.Max(0, PlayerPrefs.GetInt(HighScorePrefsKey, 0));
             EnsureSceneServices();
             comboTracker = new ScoreComboTracker(Settings.ComboWindowSeconds);
             cubePool = new ComponentPool<CubeTarget>(CreateCubeTarget);
@@ -60,6 +74,8 @@ namespace CubeNinja.Run
 
         private void Update()
         {
+            UpdateBackgroundTransform();
+
             if (waitingToStart)
             {
                 UpdateHud();
@@ -110,6 +126,7 @@ namespace CubeNinja.Run
 
             hudPresenter?.ClearPopups();
             hudPresenter?.SetStartMenuVisible(false);
+            audioFeedback?.PlayGameStart();
             UpdateHud();
         }
 
@@ -139,7 +156,9 @@ namespace CubeNinja.Run
             var multiplier = comboTracker.RegisterScoreHit(Time.time);
             var pointsAdded = type.PointValue * multiplier;
             score += pointsAdded;
+            TryUpdateHighScore();
             hudPresenter?.ShowScorePopup(popupPosition, pointsAdded, multiplier);
+            audioFeedback?.PlayScore(multiplier);
 
             UpdateHud();
         }
@@ -245,6 +264,7 @@ namespace CubeNinja.Run
         {
             lives = Mathf.Max(0, lives - 1);
             hudPresenter?.ShowLifeLostPopup(popupPosition);
+            audioFeedback?.PlayLifeLost();
 
             if (lives <= 0)
             {
@@ -256,7 +276,10 @@ namespace CubeNinja.Run
 
         private void EndRun()
         {
+            TryUpdateHighScore();
             gameOver = true;
+            audioFeedback?.PlayGameOver();
+
             for (var i = activeCubes.Count - 1; i >= 0; i--)
             {
                 ReleaseCube(activeCubes[i]);
@@ -290,7 +313,8 @@ namespace CubeNinja.Run
             mainCamera.transform.position = new Vector3(0f, 0f, -10f);
             mainCamera.transform.rotation = Quaternion.identity;
             mainCamera.clearFlags = CameraClearFlags.SolidColor;
-            mainCamera.backgroundColor = new Color(0.08f, 0.09f, 0.12f, 1f);
+            mainCamera.backgroundColor = new Color(0.98f, 0.68f, 0.76f, 1f);
+            EnsureBackground();
 
             if (Object.FindFirstObjectByType<Light>() == null)
             {
@@ -318,6 +342,97 @@ namespace CubeNinja.Run
             hudPresenter.StartRequested -= StartRun;
             hudPresenter.StartRequested += StartRun;
             ConfigureStartMenuInfo();
+
+            if (audioFeedback == null)
+            {
+                audioFeedback = Object.FindFirstObjectByType<AudioFeedbackPlayer>();
+            }
+
+            if (audioFeedback == null)
+            {
+                var audioObject = new GameObject("Audio Feedback");
+                audioFeedback = audioObject.AddComponent<AudioFeedbackPlayer>();
+            }
+        }
+
+        private void EnsureBackground()
+        {
+            if (backgroundTexture == null)
+            {
+                backgroundTexture = Resources.Load<Texture2D>(BackgroundResourcePath);
+            }
+
+            if (backgroundTexture == null || mainCamera == null)
+            {
+                return;
+            }
+
+            if (backgroundTransform == null)
+            {
+                var backgroundObject = GameObject.Find("Shrine Background");
+                if (backgroundObject == null)
+                {
+                    backgroundObject = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    backgroundObject.name = "Shrine Background";
+                }
+
+                backgroundTransform = backgroundObject.transform;
+                backgroundRenderer = backgroundObject.GetComponent<MeshRenderer>();
+
+                var backgroundCollider = backgroundObject.GetComponent<Collider>();
+                if (backgroundCollider != null)
+                {
+                    if (Application.isPlaying)
+                    {
+                        Destroy(backgroundCollider);
+                    }
+                    else
+                    {
+                        DestroyImmediate(backgroundCollider);
+                    }
+                }
+            }
+
+            if (backgroundRenderer == null)
+            {
+                backgroundRenderer = backgroundTransform.GetComponent<MeshRenderer>();
+            }
+
+            if (backgroundRenderer == null)
+            {
+                return;
+            }
+
+            if (backgroundMaterial == null)
+            {
+                var shader = FindBackgroundShader();
+                if (shader == null)
+                {
+                    return;
+                }
+
+                backgroundMaterial = new Material(shader)
+                {
+                    name = "Shrine Background Runtime Material",
+                    hideFlags = HideFlags.DontSave
+                };
+            }
+
+            if (backgroundMaterial.HasProperty(MainTexId))
+            {
+                backgroundMaterial.SetTexture(MainTexId, backgroundTexture);
+            }
+
+            if (backgroundMaterial.HasProperty(BaseMapId))
+            {
+                backgroundMaterial.SetTexture(BaseMapId, backgroundTexture);
+            }
+
+            backgroundRenderer.sharedMaterial = backgroundMaterial;
+            backgroundRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            backgroundRenderer.receiveShadows = false;
+
+            UpdateBackgroundTransform();
         }
 
         private void EnterStartMenu()
@@ -361,13 +476,41 @@ namespace CubeNinja.Run
                     }
 
                     var description = cubeType.ClickOutcome == CubeClickOutcome.LoseLife
-                        ? "Danger cube: costs 1 life if clicked. No penalty if it falls."
-                        : $"{cubeType.PointValue} point{(cubeType.PointValue == 1 ? string.Empty : "s")} before combo multiplier.";
+                        ? "Costs 1 life if clicked. Safe if missed."
+                        : $"+{cubeType.PointValue} point{(cubeType.PointValue == 1 ? string.Empty : "s")} before combo.";
                     entries.Add(new HudPresenter.LegendEntry(cubeType.DisplayName, cubeType.Color, description));
                 }
             }
 
             hudPresenter.SetStartMenuInfo(entries.ToArray(), Settings.ComboWindowSeconds);
+        }
+
+        private void UpdateBackgroundTransform()
+        {
+            if (backgroundTransform == null || mainCamera == null || backgroundTexture == null)
+            {
+                return;
+            }
+
+            var viewportHeight = mainCamera.orthographicSize * 2f;
+            var viewportWidth = viewportHeight * mainCamera.aspect;
+            var textureAspect = backgroundTexture.width / (float)backgroundTexture.height;
+            var viewportAspect = viewportWidth / viewportHeight;
+
+            var width = viewportWidth;
+            var height = viewportHeight;
+            if (textureAspect > viewportAspect)
+            {
+                width = viewportHeight * textureAspect;
+            }
+            else
+            {
+                height = viewportWidth / textureAspect;
+            }
+
+            backgroundTransform.position = new Vector3(mainCamera.transform.position.x, mainCamera.transform.position.y, spawnPlaneZ + 8f);
+            backgroundTransform.rotation = Quaternion.identity;
+            backgroundTransform.localScale = new Vector3(width, height, 1f);
         }
 
         private Vector3 ViewportToPlane(float x, float y)
@@ -385,10 +528,31 @@ namespace CubeNinja.Run
 
             hudPresenter.SetRunState(
                 score,
+                highScore,
                 lives,
                 comboTracker.CurrentMultiplier,
                 comboTracker.GetWindowRemaining(Time.time),
                 gameOver);
+        }
+
+        private void TryUpdateHighScore()
+        {
+            if (score <= highScore)
+            {
+                return;
+            }
+
+            highScore = score;
+            PlayerPrefs.SetInt(HighScorePrefsKey, highScore);
+            PlayerPrefs.Save();
+        }
+
+        private static Shader FindBackgroundShader()
+        {
+            return Shader.Find("Unlit/Texture")
+                ?? Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Sprites/Default")
+                ?? Shader.Find("Standard");
         }
     }
 }
