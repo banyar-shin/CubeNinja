@@ -470,8 +470,6 @@ namespace CubeNinja.UI
             RectTransformUtility.ScreenPointToLocalPointInRectangle(popupRoot, screenPoint, null, out var localPoint);
 
             var popupText = CreateText("Score Popup", popupRoot, text, fontSize, FontStyles.Bold, color, TextAlignmentOptions.Center);
-            popupText.outlineWidth = 0.08f;
-            popupText.outlineColor = new Color(0f, 0f, 0f, 0.9f);
             popupText.rectTransform.anchoredPosition = localPoint;
             popupText.rectTransform.sizeDelta = new Vector2(360f, 66f);
             popupText.raycastTarget = false;
@@ -664,8 +662,11 @@ namespace CubeNinja.UI
             text.enableAutoSizing = false;
             text.raycastTarget = false;
             text.extraPadding = true;
-            text.outlineWidth = 0.08f;
-            text.outlineColor = new Color(0f, 0f, 0f, 0.9f);
+
+            var outline = textObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.86f);
+            outline.effectDistance = new Vector2(1f, -1f);
+            outline.useGraphicAlpha = false;
 
             return text;
         }
