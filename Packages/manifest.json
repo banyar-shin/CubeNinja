@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.banya.manual-refresh-workflow": "file:C:/Users/banya/UnityPackages/com.banya.manual-refresh-workflow",
     "com.unity.test-framework": "1.4.6",
     "com.unity.toolchain.win-x86_64-linux-x86_64": "2.0.11",
     "com.unity.ugui": "2.0.0",

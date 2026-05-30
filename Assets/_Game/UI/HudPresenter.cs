@@ -15,9 +15,9 @@ namespace CubeNinja.UI
         private const int EdgeGlowBands = 5;
         private const int ClickEffectPixelCount = 14;
 
-        private static readonly Color BackgroundColor = new Color(0.085f, 0.075f, 0.18f, 0.24f);
-        private static readonly Color PanelColor = new Color(0.14f, 0.12f, 0.28f, 0.42f);
-        private static readonly Color PanelAccentColor = new Color(0.78f, 0.62f, 1f, 0.9f);
+        private static readonly Color BackgroundColor = new Color(0.085f, 0.075f, 0.18f, 0.14f);
+        private static readonly Color PanelColor = new Color(0.14f, 0.12f, 0.28f, 0.28f);
+        private static readonly Color PanelAccentColor = new Color(0.78f, 0.62f, 1f, 0.72f);
         private static readonly Color ButtonColor = new Color(1f, 0.34f, 0.29f, 1f);
         private static readonly Color ButtonHoverColor = new Color(1f, 0.48f, 0.39f, 1f);
         private static readonly Color BodyTextColor = new Color(0.82f, 0.9f, 0.98f, 1f);
@@ -25,6 +25,17 @@ namespace CubeNinja.UI
         private static readonly Color ScorePopupColor = new Color(1f, 1f, 1f, 1f);
         private static readonly Color ComboPopupColor = new Color(1f, 0.91f, 0.24f, 1f);
         private static readonly Color DamageColor = new Color(1f, 0.05f, 0.03f, 1f);
+        private static readonly Vector2[] TextBorderOffsets =
+        {
+            new Vector2(-1.5f, 0f),
+            new Vector2(1.5f, 0f),
+            new Vector2(0f, -1.5f),
+            new Vector2(0f, 1.5f),
+            new Vector2(-1.125f, -1.125f),
+            new Vector2(-1.125f, 1.125f),
+            new Vector2(1.125f, -1.125f),
+            new Vector2(1.125f, 1.125f)
+        };
 
         [SerializeField] private Camera mainCamera;
 
@@ -233,6 +244,7 @@ namespace CubeNinja.UI
             Anchor(comboRect, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(300f, 60f));
             comboText = CreateText("Combo", comboBadge.transform, "Combo x2", 28f, FontStyles.Bold, new Color(0.13f, 0.055f, 0.015f, 1f), TextAlignmentOptions.Center);
             Stretch(comboText.rectTransform, new Vector2(12f, 0f), new Vector2(-12f, 0f));
+            comboBadge.SetActive(false);
 
             var livesPanel = CreatePanel("Lives Panel", hudRoot.transform, new Color(0.12f, 0.105f, 0.24f, 0.78f), ButtonColor);
             var livesRect = livesPanel.GetComponent<RectTransform>();
@@ -359,12 +371,7 @@ namespace CubeNinja.UI
             scoreText.text = $"Score {score}";
             highScoreText.text = $"Best {highScore}";
 
-            var comboActive = comboMultiplier > 1 && comboRemainingSeconds > 0f && !gameOver;
-            comboBadge.SetActive(comboActive);
-            if (comboActive)
-            {
-                comboText.text = $"Combo x{comboMultiplier}";
-            }
+            comboBadge.SetActive(false);
 
             for (var i = 0; i < lifeImages.Length; i++)
             {
@@ -440,7 +447,7 @@ namespace CubeNinja.UI
                 title.fontSizeMax = 18f;
                 Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(64f, -2f), new Vector2(-64f, 24f));
 
-                var detail = CreateText("Description", row.transform, entry.Description, 15f, FontStyles.Normal, MutedTextColor, TextAlignmentOptions.Left);
+                var detail = CreateText("Description", row.transform, entry.Description, 15f, FontStyles.Normal, BodyTextColor, TextAlignmentOptions.Left);
                 detail.textWrappingMode = TextWrappingModes.Normal;
                 detail.enableAutoSizing = true;
                 detail.fontSizeMin = 12f;
@@ -529,8 +536,9 @@ namespace CubeNinja.UI
                 }
 
                 var t = age / PopupLifetimeSeconds;
+                var alpha = 1f - t;
                 popup.RectTransform.anchoredPosition = popup.StartPosition + Vector2.up * (68f * t);
-                popup.Text.color = new Color(popup.Color.r, popup.Color.g, popup.Color.b, 1f - t);
+                popup.Text.color = new Color(popup.Color.r, popup.Color.g, popup.Color.b, alpha);
             }
         }
 
@@ -663,12 +671,30 @@ namespace CubeNinja.UI
             text.raycastTarget = false;
             text.extraPadding = true;
 
-            var outline = textObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.86f);
-            outline.effectDistance = new Vector2(1f, -1f);
-            outline.useGraphicAlpha = false;
+            var borderTexts = CreateTextBorderCopies(name, text);
+            var borderSync = textObject.AddComponent<TextBorderLayerSync>();
+            borderSync.Initialize(text, borderTexts, TextBorderOffsets);
+            borderSync.SyncNow();
 
             return text;
+        }
+
+        private static TMP_Text[] CreateTextBorderCopies(string name, TMP_Text source)
+        {
+            var borderTexts = new TMP_Text[TextBorderOffsets.Length];
+            var parent = source.transform.parent;
+
+            for (var i = 0; i < TextBorderOffsets.Length; i++)
+            {
+                var borderObject = CreateUiObject($"{name} Border {i + 1}", parent);
+                borderObject.transform.SetSiblingIndex(source.transform.GetSiblingIndex());
+
+                var borderText = borderObject.AddComponent<TextMeshProUGUI>();
+                borderText.raycastTarget = false;
+                borderTexts[i] = borderText;
+            }
+
+            return borderTexts;
         }
 
         private Image CreateEdgeBand(Transform parent, string name, EdgeSide side, int band)
@@ -781,6 +807,123 @@ namespace CubeNinja.UI
             public Vector2 StartPosition { get; }
             public float StartTime { get; }
             public Color Color { get; }
+        }
+
+        private sealed class TextBorderLayerSync : MonoBehaviour
+        {
+            private TMP_Text source;
+            private TMP_Text[] borderTexts;
+            private Vector2[] offsets;
+
+            public void Initialize(TMP_Text sourceText, TMP_Text[] borders, Vector2[] borderOffsets)
+            {
+                source = sourceText;
+                borderTexts = borders;
+                offsets = borderOffsets;
+            }
+
+            private void LateUpdate()
+            {
+                SyncNow();
+            }
+
+            private void OnEnable()
+            {
+                SyncNow();
+            }
+
+            private void OnRectTransformDimensionsChange()
+            {
+                SyncNow();
+            }
+
+            private void OnDestroy()
+            {
+                if (borderTexts == null)
+                {
+                    return;
+                }
+
+                for (var i = 0; i < borderTexts.Length; i++)
+                {
+                    var borderText = borderTexts[i];
+                    if (borderText == null)
+                    {
+                        continue;
+                    }
+
+                    if (Application.isPlaying)
+                    {
+                        Destroy(borderText.gameObject);
+                    }
+                    else
+                    {
+                        DestroyImmediate(borderText.gameObject);
+                    }
+                }
+            }
+
+            public void SyncNow()
+            {
+                if (source == null || borderTexts == null || offsets == null)
+                {
+                    return;
+                }
+
+                for (var i = 0; i < borderTexts.Length && i < offsets.Length; i++)
+                {
+                    var borderText = borderTexts[i];
+                    if (borderText == null)
+                    {
+                        continue;
+                    }
+
+                    CopyRect(source.rectTransform, borderText.rectTransform, offsets[i]);
+                    CopyText(source, borderText);
+                }
+            }
+
+            private static void CopyRect(RectTransform sourceRect, RectTransform targetRect, Vector2 offset)
+            {
+                targetRect.anchorMin = sourceRect.anchorMin;
+                targetRect.anchorMax = sourceRect.anchorMax;
+                targetRect.pivot = sourceRect.pivot;
+                targetRect.localRotation = sourceRect.localRotation;
+                targetRect.localScale = sourceRect.localScale;
+                targetRect.offsetMin = sourceRect.offsetMin + offset;
+                targetRect.offsetMax = sourceRect.offsetMax + offset;
+            }
+
+            private static void CopyText(TMP_Text sourceText, TMP_Text targetText)
+            {
+                targetText.enabled = sourceText.enabled;
+                targetText.text = sourceText.text;
+                targetText.font = sourceText.font;
+                targetText.fontSize = sourceText.fontSize;
+                targetText.fontSizeMin = sourceText.fontSizeMin;
+                targetText.fontSizeMax = sourceText.fontSizeMax;
+                targetText.enableAutoSizing = sourceText.enableAutoSizing;
+                targetText.fontStyle = sourceText.fontStyle;
+                targetText.alignment = sourceText.alignment;
+                targetText.textWrappingMode = sourceText.textWrappingMode;
+                targetText.overflowMode = sourceText.overflowMode;
+                targetText.characterSpacing = sourceText.characterSpacing;
+                targetText.wordSpacing = sourceText.wordSpacing;
+                targetText.lineSpacing = sourceText.lineSpacing;
+                targetText.paragraphSpacing = sourceText.paragraphSpacing;
+                targetText.richText = sourceText.richText;
+                targetText.extraPadding = sourceText.extraPadding;
+                targetText.margin = sourceText.margin;
+                targetText.raycastTarget = false;
+
+                var sourceMaterial = sourceText.fontSharedMaterial;
+                if (sourceMaterial != null)
+                {
+                    targetText.fontSharedMaterial = sourceMaterial;
+                }
+
+                targetText.color = new Color(0f, 0f, 0f, sourceText.color.a);
+            }
         }
 
         private sealed class ClickPixelEffect

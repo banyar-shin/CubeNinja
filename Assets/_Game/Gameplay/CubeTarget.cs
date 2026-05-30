@@ -11,19 +11,29 @@ namespace CubeNinja.Gameplay
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
+        private static readonly int CullId = Shader.PropertyToID("_Cull");
+        private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int GlossinessId = Shader.PropertyToID("_Glossiness");
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private static readonly int MetallicId = Shader.PropertyToID("_Metallic");
+        private static readonly int SurfaceId = Shader.PropertyToID("_Surface");
         private static readonly int SmoothnessId = Shader.PropertyToID("_Smoothness");
-        private const int PaintTextureSize = 64;
+        private static readonly int SpecColorId = Shader.PropertyToID("_SpecColor");
+        private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
+        private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+        private const float EdgeThickness = 0.0175f;
+        private const float CubeAlpha = 0.68f;
+        private const float EdgeInset = 0.5f - (EdgeThickness * 0.5f);
+        private const float EdgeLength = 1f;
 
-        private static Material sharedPaintMaterial;
-        private static Texture2D sharedPaintTexture;
+        private static Material sharedEdgeMaterial;
+        private static Material sharedCubeMaterial;
 
         [SerializeField] private MeshRenderer meshRenderer;
         [SerializeField] private Rigidbody body;
         [SerializeField] private BoxCollider targetCollider;
 
+        private Transform edgeRoot;
         private MaterialPropertyBlock propertyBlock;
         private CubeTypeDefinition cubeType;
         private ICubeTargetListener listener;
@@ -151,12 +161,14 @@ namespace CubeNinja.Gameplay
 
             if (meshRenderer != null)
             {
-                var paintMaterial = GetSharedPaintMaterial();
-                if (paintMaterial != null)
+                var cubeMaterial = GetSharedCubeMaterial();
+                if (cubeMaterial != null)
                 {
-                    meshRenderer.sharedMaterial = paintMaterial;
+                    meshRenderer.sharedMaterial = cubeMaterial;
                 }
             }
+
+            EnsureEdgeRenderers();
 
             if (body == null)
             {
@@ -193,92 +205,214 @@ namespace CubeNinja.Gameplay
                 propertyBlock = new MaterialPropertyBlock();
             }
 
+            var translucentColor = new Color(color.r, color.g, color.b, CubeAlpha);
             meshRenderer.GetPropertyBlock(propertyBlock);
-            propertyBlock.SetColor(BaseColorId, color);
-            propertyBlock.SetColor(ColorId, color);
+            propertyBlock.SetColor(BaseColorId, translucentColor);
+            propertyBlock.SetColor(ColorId, translucentColor);
             meshRenderer.SetPropertyBlock(propertyBlock);
         }
 
-        private static Material GetSharedPaintMaterial()
+        private static Material GetSharedCubeMaterial()
         {
-            if (sharedPaintMaterial != null)
+            if (sharedCubeMaterial != null)
             {
-                return sharedPaintMaterial;
+                return sharedCubeMaterial;
             }
 
-            var shader = Shader.Find("Universal Render Pipeline/Lit")
-                ?? Shader.Find("Standard")
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Sprites/Default")
                 ?? Shader.Find("Unlit/Texture")
-                ?? Shader.Find("Sprites/Default");
+                ?? Shader.Find("Standard");
             if (shader == null)
             {
                 return null;
             }
 
-            sharedPaintMaterial = new Material(shader)
+            sharedCubeMaterial = new Material(shader)
             {
-                name = "CubeNinja Painterly Cube Material",
+                name = "CubeNinja Smooth Cube Material",
                 hideFlags = HideFlags.DontSave
             };
 
-            var texture = GetSharedPaintTexture();
-            if (sharedPaintMaterial.HasProperty(MainTexId))
+            if (sharedCubeMaterial.HasProperty(MainTexId))
             {
-                sharedPaintMaterial.SetTexture(MainTexId, texture);
+                sharedCubeMaterial.SetTexture(MainTexId, Texture2D.whiteTexture);
             }
 
-            if (sharedPaintMaterial.HasProperty(BaseMapId))
+            if (sharedCubeMaterial.HasProperty(BaseMapId))
             {
-                sharedPaintMaterial.SetTexture(BaseMapId, texture);
+                sharedCubeMaterial.SetTexture(BaseMapId, Texture2D.whiteTexture);
             }
 
-            if (sharedPaintMaterial.HasProperty(SmoothnessId))
+            if (sharedCubeMaterial.HasProperty(SmoothnessId))
             {
-                sharedPaintMaterial.SetFloat(SmoothnessId, 0.18f);
+                sharedCubeMaterial.SetFloat(SmoothnessId, 0f);
             }
 
-            if (sharedPaintMaterial.HasProperty(GlossinessId))
+            if (sharedCubeMaterial.HasProperty(GlossinessId))
             {
-                sharedPaintMaterial.SetFloat(GlossinessId, 0.18f);
+                sharedCubeMaterial.SetFloat(GlossinessId, 0f);
             }
 
-            if (sharedPaintMaterial.HasProperty(MetallicId))
+            if (sharedCubeMaterial.HasProperty(MetallicId))
             {
-                sharedPaintMaterial.SetFloat(MetallicId, 0f);
+                sharedCubeMaterial.SetFloat(MetallicId, 0f);
             }
 
-            return sharedPaintMaterial;
+            if (sharedCubeMaterial.HasProperty(SpecColorId))
+            {
+                sharedCubeMaterial.SetColor(SpecColorId, Color.black);
+            }
+
+            ConfigureTransparentMaterial(sharedCubeMaterial);
+            return sharedCubeMaterial;
         }
 
-        private static Texture2D GetSharedPaintTexture()
+        private static Material GetSharedEdgeMaterial()
         {
-            if (sharedPaintTexture != null)
+            if (sharedEdgeMaterial != null)
             {
-                return sharedPaintTexture;
+                return sharedEdgeMaterial;
             }
 
-            sharedPaintTexture = new Texture2D(PaintTextureSize, PaintTextureSize, TextureFormat.RGBA32, false)
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Sprites/Default")
+                ?? Shader.Find("Standard");
+            if (shader == null)
             {
-                name = "CubeNinja Painterly Cube Texture",
-                hideFlags = HideFlags.DontSave,
-                filterMode = FilterMode.Bilinear,
-                wrapMode = TextureWrapMode.Repeat
-            };
+                return null;
+            }
 
-            for (var y = 0; y < PaintTextureSize; y++)
+            sharedEdgeMaterial = new Material(shader)
             {
-                for (var x = 0; x < PaintTextureSize; x++)
+                name = "CubeNinja Cube Edge Material",
+                hideFlags = HideFlags.DontSave
+            };
+            sharedEdgeMaterial.color = Color.black;
+            if (sharedEdgeMaterial.HasProperty(BaseColorId))
+            {
+                sharedEdgeMaterial.SetColor(BaseColorId, Color.black);
+            }
+
+            if (sharedEdgeMaterial.HasProperty(ColorId))
+            {
+                sharedEdgeMaterial.SetColor(ColorId, Color.black);
+            }
+
+            sharedEdgeMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.GeometryLast;
+            return sharedEdgeMaterial;
+        }
+
+        private static void ConfigureTransparentMaterial(Material material)
+        {
+            if (material.HasProperty(SurfaceId))
+            {
+                material.SetFloat(SurfaceId, 1f);
+            }
+
+            if (material.HasProperty(SrcBlendId))
+            {
+                material.SetFloat(SrcBlendId, (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            }
+
+            if (material.HasProperty(DstBlendId))
+            {
+                material.SetFloat(DstBlendId, (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            }
+
+            if (material.HasProperty(ZWriteId))
+            {
+                material.SetFloat(ZWriteId, 0f);
+            }
+
+            if (material.HasProperty(CullId))
+            {
+                material.SetFloat(CullId, (float)UnityEngine.Rendering.CullMode.Back);
+            }
+
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+
+        private void EnsureEdgeRenderers()
+        {
+            if (edgeRoot != null)
+            {
+                return;
+            }
+
+            var edgeMaterial = GetSharedEdgeMaterial();
+            if (edgeMaterial == null)
+            {
+                return;
+            }
+
+            var rootObject = new GameObject("Cube Edges");
+            edgeRoot = rootObject.transform;
+            edgeRoot.SetParent(transform, false);
+            edgeRoot.localPosition = Vector3.zero;
+            edgeRoot.localRotation = Quaternion.identity;
+            edgeRoot.localScale = Vector3.one;
+
+            var index = 0;
+            for (var y = -1; y <= 1; y += 2)
+            {
+                for (var z = -1; z <= 1; z += 2)
                 {
-                    var broad = Mathf.PerlinNoise(x * 0.1f, y * 0.1f);
-                    var fine = Mathf.PerlinNoise(20f + x * 0.42f, 40f + y * 0.42f);
-                    var brush = Mathf.Clamp01((broad * 0.68f) + (fine * 0.32f));
-                    var shade = Mathf.Lerp(0.72f, 1.12f, brush);
-                    sharedPaintTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
+                    CreateEdge($"Edge X {index++}", new Vector3(0f, y * EdgeInset, z * EdgeInset), new Vector3(EdgeLength, EdgeThickness, EdgeThickness), edgeMaterial);
                 }
             }
 
-            sharedPaintTexture.Apply(false, true);
-            return sharedPaintTexture;
+            for (var x = -1; x <= 1; x += 2)
+            {
+                for (var z = -1; z <= 1; z += 2)
+                {
+                    CreateEdge($"Edge Y {index++}", new Vector3(x * EdgeInset, 0f, z * EdgeInset), new Vector3(EdgeThickness, EdgeLength, EdgeThickness), edgeMaterial);
+                }
+            }
+
+            for (var x = -1; x <= 1; x += 2)
+            {
+                for (var y = -1; y <= 1; y += 2)
+                {
+                    CreateEdge($"Edge Z {index++}", new Vector3(x * EdgeInset, y * EdgeInset, 0f), new Vector3(EdgeThickness, EdgeThickness, EdgeLength), edgeMaterial);
+                }
+            }
+        }
+
+        private void CreateEdge(string edgeName, Vector3 localPosition, Vector3 localScale, Material edgeMaterial)
+        {
+            var edgeObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            edgeObject.name = edgeName;
+            edgeObject.transform.SetParent(edgeRoot, false);
+            edgeObject.transform.localPosition = localPosition;
+            edgeObject.transform.localRotation = Quaternion.identity;
+            edgeObject.transform.localScale = localScale;
+
+            var edgeCollider = edgeObject.GetComponent<Collider>();
+            if (edgeCollider != null)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(edgeCollider);
+                }
+                else
+                {
+                    DestroyImmediate(edgeCollider);
+                }
+            }
+
+            var edgeRenderer = edgeObject.GetComponent<MeshRenderer>();
+            if (edgeRenderer != null)
+            {
+                edgeRenderer.sharedMaterial = edgeMaterial;
+                edgeRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                edgeRenderer.receiveShadows = false;
+            }
         }
 
         private void ReflectInsideHorizontalBounds()
