@@ -37,4 +37,9 @@ Thumbs.db
 # Unity generated package lock can be regenerated
 /Packages/packages-lock.json
 
+# Demo/video exports
+/CubeNinja_Demo.mp4
+/CubeNinja_Demo.osp
+/CubeNinja_Demo_assets/
+
 */worktrees
